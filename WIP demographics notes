@@ -1,0 +1,49 @@
+
+Formulating class distributions
+
+`AGE_DESC`
+
+We could create three relatively even Age classes using the labels;
+
+    0-34 
+    35-44 
+    45+ 
+    "55+"
+    
+To create a more even class distribution. These groupings are extremely arbitrary; beyond that we could tack these labels onto (aggregate) transaction data, and **try to predict the unknown values for households not in our data**, but that is outside the scope of this project. 
+
+`MARITAL_STATUS_CODE`
+
+There are a significant number of 'Unknown' values in this column. It is up for debate whether marital status is more relevant than number of persons in the household, but again, could provide some insight into that demographic.
+
+I recommend would labelling Married households as such, and leaving all others aside. We might be able to perceive some specific behaviour of households identifying as `Married`. Relationships are complicated, anyway.
+
+    Married (1)
+    Single/Unknown (0)
+
+`INCOME_DESC`
+
+We could create three relatively even classes using the labels;
+
+    0-49k (0)
+    50-99k (1)
+    100k+ (2)
+    
+Or providing a null class. On the subject of reverse-engineering demographics (predictions) from household-level transaction data, I would love some advice or thoughts about this sort of encoding -- there's a lot to learn. 
+    
+`HOMEOWNER_DESC`
+
+Similar to marital status code, we might expect 'homeowner' to be the most honest (and therefore informative) answer here -- my assumption is that people have no reason to lie about either on a grocery store survey.
+
+I propose to label 'homeowner' households (including probable homeowner), and leave the others as null (Unknown);
+
+    Homeowner (1)
+    Unknown (0)
+    
+Which gives us a good starting point for 'building' that column back from predictions, should we attempt it. 
+
+`HH_COMP_DESC`
+`HOUSEHOLD_SIZE_DESC`
+`KID_CATEGORY_DESC`
+
+`HH_SIZE_DESC` could be a 'category' categorical column, although it is basically a "consumption multiplier" value -- I'd be interested to discuss this with someone who knows more.

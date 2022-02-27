@@ -1,0 +1,1452 @@
+
+
+
+### CAMPAIGN SUMMARY STUFF ###
+
+
+
+def make_campaign_sales_series(campaign_summary, merged):
+#     results = dict()
+    for camp_no in range(1,31):
+        product_list = [int(x) for x in campaign_summary.loc[camp_no]['Listed Products'][1:-1].strip().split(',')]
+    #     results[camp_no] = merged[merged['PRODUCT_ID'].isin()
+    #     ]]
+        result = merged[merged['PRODUCT_ID'].isin(product_list)][['datetime','SALES_VALUE']]
+#         results[camp_no] = results
+        
+        pd.DataFrame(results).to_csv(f'outputs/campaign_sales/{camp_no}_sales.csv')
+#     return results
+
+make_campaign_sales_series(campaign_summary, merged)
+# Advertising Campaign Analysis
+
+## Business Summary/tl;dr
+
+
+Investigating the impact of direct marketing on households may be beyond my statistical knowledge -- but I can give you the total sales of products listed in the campaigns; before, during and after; in a dashboard;
+
+# def plot_campaign_sales(campaign_summary, camp_no, merged_df):
+#     fig, ax = plt.subplots(figsize=(16,4))
+    
+#     plt.title(f'Campaign {camp_no}')
+#     plt.ylabel(f'Avg. Daily Sales')
+#     plt.xlabel('DAY')    
+    
+#     first = mydict[camp_no]['First Day']
+#     last = mydict[camp_no]['Last Day']
+#     total_days = mydict[camp_no]['Duration']
+    
+#     ### How Much Data
+#     trans_max = merged['DAY'].max()
+#     trans_min = merged['DAY'].min()
+
+#     merged[merged['PRODUCT_ID'].isin(product_list)].groupby('DAY')['SALES_VALUE'].sum().plot(color='black', label=' Listed Products Sales')
+#     plt.axvspan(first, last, alpha=0.2, color='yellow')
+
+#     val = mydict[camp_no]['Listed Products Sales During'] / (last - first) + 1
+#     ax.plot((first, last), (val, val) , color='red', label='Avg. during')
+
+#     val = mydict[camp_no]['Listed Products Sales After'] / (trans_max - last) + 1
+#     ax.plot((last, trans_max), (val, val) , color='blue', label='Avg. after')
+
+#     val = mydict[camp_no]['Listed Products Sales Before'] / (first - trans_min) + 1 
+#     ax.plot((trans_min, first), (val, val) , color='purple', label='Avg. before')
+
+#     val = mydict[camp_no]['Listed Products Total Sales'] / ((trans_max - trans_min) +1)
+#     ax.plot((trans_min, trans_max), (val, val) , color='cyan', label='Avg. total', alpha=0.5)
+#     plt.legend()
+# #     plt.show()
+    
+# plot_campaign_sales(mydict, 15, merged)
+
+### Other Notes:
+- TypeA campaigns only sent 16 coupons out of the total products listed; these campaigns should likely be dropped. The coupons they were sent are un-knowable, as per the data dictionary.
+- Campaigns targeted varying numbers of households; households made varying numbers of transactions
+
+# Introduction
+
+There were 30 advertising campaigns which took place over the course of our data. We'd like to examine the impacts of direct marketing on households -- but it's a complicated undertaking. 
+
+I'd still like to get some information, such as;
+- Which products were featured in each campaign? 
+- What do the sales for those products look like before the campaign? During? What about after?**
+
+Now that we've manually binned products into sections, we can compare the sales of each section with the campaigns having a high number of products from that section.
+
+# Import Modules and Data
+
+# importing packages
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime
+import pickle
+
+import my_funcs
+
+plt.rcParams['figure.figsize'] = (16,6)
+plt.style.use('seaborn')
+
+import os
+
+# loading data
+product = pd.read_csv('data/product.csv')
+coupon = pd.read_csv('data/coupon.csv')
+transactions = pd.read_csv('data/transaction_data.csv')
+campaign_desc = pd.read_csv('data/campaign_desc.csv')
+campaign_table = pd.read_csv('data/campaign_table.csv')
+
+# truncating data to account for leading tail
+transactions = transactions[transactions['DAY'] > 100]
+
+# adding section labels
+product['Section Labels'] = my_funcs.return_section_labels(product)
+# creating merged from transactions and product
+merged = transactions.merge(product)
+
+# Disclaimer re: Campaigns of TypeA
+
+remember that TypeA campaigns only send 16 coupons, where TypeB and TypeC campaigns include all coupons to all households.
+
+# remember that TypeA campaigns only send 16 coupons, where TypeB and TypeC campaigns include all coupons to all households.
+
+campaign_desc.head()
+
+ # 5 of 30 campaigns are TypeA campaigns.
+campaign_desc['DESCRIPTION'].value_counts()
+
+# Grabbing Product Lists from Campaigns
+
+
+
+# e
+camp_no = 1
+product_list = list(coupon[coupon['CAMPAIGN'] == camp_no]['PRODUCT_ID'])
+len(product_list)
+
+section_label_counts_1 = {v:k for (k, v) in zip(product[product['PRODUCT_ID'].isin(coupon_list)]['Section Labels'].value_counts(),
+                                                product[product['PRODUCT_ID'].isin(coupon_list)]['Section Labels'].value_counts().index)}
+section_label_counts_1
+
+sliced_trans = transactions[transactions['PRODUCT_ID'].isin(product_list)]
+sliced_trans.head()
+
+## Sales of Products in the campaigns;
+---
+Total; Before; During; After;
+
+def make_campaign_sales():
+    df = pd.DataFrame()
+    product_lists = dict()
+
+    for camp_no in range(1, 31):
+    #     camp_no = 1
+        first, last = list(campaign_desc[campaign_desc['CAMPAIGN'] == camp_no][['START_DAY', 'END_DAY']].iloc[0, :].values)
+        coupon_list = list(coupon[coupon['CAMPAIGN'] == camp_no]['PRODUCT_ID'])
+        product_lists[camp_no] = coupon_list
+
+        # Assertion for day limits
+        if first < transactions['DAY'].min():
+            first = transactions['DAY'].min()
+        if last > 711: # campaign 24 has an erroneous LAST_DAY
+            last = 711
+
+        # avg. daily sales of products in the campaign 
+        # Overall
+        total = transactions[transactions['PRODUCT_ID'].isin(coupon_list)]['SALES_VALUE'].sum() / (712 - transactions['DAY'].min())
+
+        # avg. sales before the campaign
+        before = transactions[transactions['PRODUCT_ID'].isin(coupon_list) & (transactions['DAY'] < first)]['SALES_VALUE'].sum() / (first+1 - transactions['DAY'].min())
+
+        # avg. daily sales of products in the campaign 
+        # During the campaign 
+        during = transactions[(transactions['PRODUCT_ID'].isin(coupon_list)) & (transactions['DAY'].isin(range(first, last + 1)))]['SALES_VALUE'].sum() / (last+1 - first)
+
+        # total sales of products in the campaign 
+        # During the campaign 
+        after = transactions[(transactions['PRODUCT_ID'].isin(coupon_list)) & (transactions['DAY'] > last)]['SALES_VALUE'].sum() / (712-last)
+
+        df = df.append(pd.Series([total, before, during, after, first, last]), ignore_index=True)
+
+    # add index (campaign) and columns
+    df.columns = ['total', 'before', 'during', 'after', 'first', 'last']
+    df.index = (range(1,31))
+    return df
+
+campaign_sales = make_campaign_sales()
+
+campaign_sales # index is campaign number
+
+campaign_sales.to_csv('data/outputs/campaign_sales.csv')
+
+ser = ((df['during'] - df[['before', 'after']].mean(axis=1)) / df['total']) *100
+# ser
+# is this normalized difference?
+# df['normal diff'] = ser
+
+ser.nlargest(5)
+
+df # daily sales of products available in each campaign
+
+# Defining Function for Campaign Summary Table
+
+This is the function that became the campaign summary table;
+
+- I took everything I needed to plot the sum of sales for products in each campaign
+    - Calculated the duration of the campaign, as well as the sum of sales for those listed products:
+        - before
+        - during
+        - after
+        - overall
+
+
+def find_section_types():
+    
+    #### CONTAINER
+    results = dict()
+    
+    for camp_no in range(1,31):
+        #### RUSSIAN DOLL
+        results[camp_no] = dict()
+        
+        
+        #### FIRST AND LAST DAY
+        first, last = list(campaign_desc[campaign_desc['CAMPAIGN'] == camp_no][['START_DAY', 'END_DAY']].iloc[0, :].values)
+        # boundary assertions for first, last
+        if first < transactions['DAY'].min():
+            first = transactions['DAY'].min()
+        if last > 711: # campaign 24 has an erroneous LAST_DAY
+            last = 711
+        # store first/last
+        results[camp_no]['First Day'] = first
+        results[camp_no]['Last Day'] = last
+        
+        #### TOTAL DURATION
+        results[camp_no]['Duration'] = (last - first) +1
+        
+        
+        
+        #### PRODUCT LISTS
+        results[camp_no]['Listed Products'] = coupon_list = list(coupon[coupon['CAMPAIGN'] == camp_no]['PRODUCT_ID'])
+        #### SECTION LABELS 
+        results[camp_no]['Section Label Counts'] = {v:k for (k, v) in zip(product[product['PRODUCT_ID'].isin(coupon_list)]['Section Labels'].value_counts(), product[product['PRODUCT_ID'].isin(coupon_list)]['Section Labels'].value_counts().index)}
+        
+        # Overall
+        results[camp_no]['Listed Products Total Sales'] = transactions[transactions['PRODUCT_ID'].isin(coupon_list)]['SALES_VALUE'].sum()
+        # avg. sales before the campaign
+        results[camp_no]['Listed Products Sales Before'] = transactions[transactions['PRODUCT_ID'].isin(coupon_list) & (transactions['DAY'] < first)]['SALES_VALUE'].sum()
+
+        # avg. daily sales of products in the campaign 
+        # During the campaign 
+        results[camp_no]['Listed Products Sales During'] = transactions[(transactions['PRODUCT_ID'].isin(coupon_list)) & (transactions['DAY'].isin(range(first, last + 1)))]['SALES_VALUE'].sum()
+
+        results[camp_no]['Listed Products Sales After'] = transactions[(transactions['PRODUCT_ID'].isin(coupon_list)) & (transactions['DAY'] > last)]['SALES_VALUE'].sum()
+
+        
+    return results
+
+a = find_section_types()
+
+pd.DataFrame(a).to_csv('data/outputs/full_campaigns.csv')
+
+# [(x, a[x]['Section Label Counts'])for x in range(1,31)]
+
+Note that campaign 15 had only products from the 'home_family' section label.
+
+# test/example
+camp_no = 15
+a[camp_no]['Section Label Counts']
+
+# Plot Campaign Sales Function
+
+
+def plot_campaign_sales(campaign_summary, camp_no, merged_df):
+    fig, ax = plt.subplots(figsize=(16,4))
+    
+    plt.title(f'Campaign {camp_no}')
+    plt.ylabel(f'Avg. Daily Sales')
+    plt.xlabel('DAY')    
+    
+    first = mydict[camp_no]['First Day']
+    last = mydict[camp_no]['Last Day']
+    total_days = mydict[camp_no]['Duration']
+    
+    ### How Much Data
+    trans_max = merged['DAY'].max()
+    trans_min = merged['DAY'].min()
+
+    merged[merged['PRODUCT_ID'].isin(product_list)].groupby('DAY')['SALES_VALUE'].sum().plot(color='black', label=' Listed Products Sales')
+    plt.axvspan(first, last, alpha=0.2, color='yellow')
+
+    val = mydict[camp_no]['Listed Products Sales During'] / (last - first) + 1
+    ax.plot((first, last), (val, val) , color='red', label='Avg. during')
+
+    val = mydict[camp_no]['Listed Products Sales After'] / (trans_max - last) + 1
+    ax.plot((last, trans_max), (val, val) , color='blue', label='Avg. after')
+
+    val = mydict[camp_no]['Listed Products Sales Before'] / (first - trans_min) + 1 
+    ax.plot((trans_min, first), (val, val) , color='purple', label='Avg. before')
+
+    val = mydict[camp_no]['Listed Products Total Sales'] / ((trans_max - trans_min) +1)
+    ax.plot((trans_min, trans_max), (val, val) , color='cyan', label='Avg. total', alpha=0.5)
+    plt.legend()
+    plt.show()
+    
+plot_campaign_sales(campaign_sales, 15, merged)
+
+pd.Series(a[15])
+
+SUCCESS! 
+
+# Visual of Campaign Sales Impact for streamlit
+
+
+def plot_campaign_sales(camp_no):
+    fig, ax = plt.subplots(figsize=(16,4))
+    
+    plt.title(f'Campaign {camp_no}')
+    
+    plt.ylabel(f'Avg. Daily Sales')
+    plt.xlabel('DAY')
+    transactions[transactions['PRODUCT_ID'].isin(product_lists[camp_no])].groupby('DAY')['SALES_VALUE'].sum().plot(color='silver')
+
+    trans_min = transactions['DAY'].min()
+    trans_max = transactions['DAY'].max()
+
+    first = df.loc[camp_no]['first']
+    last = df.loc[camp_no]['last']
+
+    total_days = transactions['DAY'].nunique()
+    plt.axvspan(first, last, alpha=0.2, color='yellow')
+
+
+    val = df.loc[camp_no]['during']
+    ax.plot((first, last), (val, val) , color='red', label='during')
+
+    val = df.loc[camp_no]['after']
+    ax.plot((last, trans_max), (val, val) , color='blue', label='after')
+
+    val = df.loc[camp_no]['before']
+    ax.plot((trans_min, first), (val, val) , color='purple', label='before')
+
+    val = df.loc[camp_no]['total']
+    ax.plot((trans_min, trans_max), (val, val) , color='cyan', label='total', alpha=0.5)
+    plt.legend()
+    plt.show()
+   
+
+  plot_campaign_sales(1)
+
+# ANOVA
+
+for i in range(1, 31): 
+    plot_campaign_sales(i)
+
+
+### ETL PIPELINE STUFF ###
+transactions = pd.read_csv('data/transaction_data.csv')
+products = pd.read_csv('data/product.csv')
+
+# Mappings for `merged.csv`
+
+def merged(trans, prod):
+    ''' ETL? -- loading clean data...'''
+    
+    trans['datetime'] = my_funcs.add_datetime(trans)
+#     prod['Section Labels'] = my_funcs.return_section_labels(products)
+    
+    # Remove Empty Sales Rows
+    trans = trans[(trans['QUANTITY'] > 0) & 
+                  (trans['SALES_VALUE'] > 0)]
+    
+    
+    # Remove monthly/quarterly tails...
+    trans = trans[(trans['datetime'] >= "2004-7-1") &
+                  (trans['datetime'] < "2006-3-1")]
+    
+    # Merge
+    merged = trans.merge(products.drop('CURR_SIZE_OF_PRODUCT', axis=1))
+    
+    # Remove Gasoline Sales
+    merged.drop(merged[merged['SUB_COMMODITY_DESC']=='GASOLINE-REG UNLEADED'].index, axis=0, inplace=True)
+    merged.drop(merged[merged['COMMODITY_DESC']=='GASOLINE-REG UNLEADED'].index, axis=0, inplace=True)
+
+    return merged
+if __name__ == '__main__':
+    merged(transactions, products).to_csv('outputs/merged.csv', index=False)
+
+def pickle_merged():
+    merged = pd.read_csv('outputs/merged.csv')
+    merged = dict(merged)
+    
+#     with open('outputs/merged_pickle.pkl', 'wb') as f:
+#         pickle.dump(merged, f)
+
+if __name__ == '__main__':
+    pickle_merged()
+
+#  testing
+# with open('outputs/merged_pickle.pkl', 'rb') as f:
+#     merged = pickle.load(f)
+    
+# pd.DataFrame(merged)
+
+## Mapping for campaign_summary.csv
+
+campaign_summary = pd.read_csv('outputs/campaign_summary.csv', index_col=0)
+
+df = pd.DataFrame(campaign_summary).T
+
+df.head()
+
+def make_date_map(df, last_day_column):
+    # 'DAY' 1 == 2004-03-23
+    day1 = datetime.datetime(2004, 3, 23) # as derived in transactions notebook; datetime for 'DAY' == 1
+    ineedthismany = df[last_day_column].max()
+    last = day1 + datetime.timedelta(days=int(ineedthismany))  
+    date_range = pd.date_range(day1, last) # date range for our data
+    # map datetime index to DAY; enumerate() indexes from 0, so we add 1
+    date_map = {i+1:x for i, x in enumerate(date_range)}
+
+    output = df[last_day_column].map(date_map)
+    output = pd.to_datetime(output)
+    return date_map
+
+date_map = make_date_map(df, last_day_column='Last Day')
+# date_map # for DAY 1-712
+
+# last_dates = [date_map[x] for x in df['Last Day'].astype(int)]
+# proof of map
+
+# adding datetime values to campaign_summary.csv
+df['First Date'] = [date_map[x] for x in df['First Day'].astype(int)]
+df['Last Date'] = [date_map[x] for x in df['Last Day'].astype(int)]
+df['timedelta'] = df['Last Date'] - df['First Date']
+
+
+
+df.to_csv('outputs/campaign_summary.csv')
+
+def binning_df(df, container, cols=['DEPARTMENT', 'COMMODITY_DESC', 'SUB_COMMODITY_DESC'], replacing='COMMODITY_DESC'):
+    '''    
+    Function to manually iterate through a DataFrame containing `columns`
+    
+    Prints the values from `[cols]` and prompts the user to input a new value (string)
+    to be mapped onto the column indicated by `replacing`
+    
+    directly bins the results into the `container` (to allow stop/starting)
+    
+    ENTER 'quit' or 'q' to exit
+
+    ''' 
+    
+    
+    # find numerical column indices for labels
+    col_idx = [list(df.columns).index(x) for x in cols]
+    
+    
+    for idx, row in df.iterrows():
+        #prompt
+        print(f'LABELS: {[row[x] for x in col_idx]}'.ljust(100), end='\r')
+        choice = input('Enter new label: ')
+        # exiting
+        if (choice.casefold() == 'quit') or (choice.casefold()=='q') or (choice.casefold()=='exit'):
+            print('exiting')
+            break
+        else:
+        # entering into dict or appending to section label
+            if choice in container:
+                container[choice].append(row[replacing])
+            else:
+                container[choice] = row[replacing]
+                
+
+FROM --0---
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+transactions['STORE_ID'].nunique()
+
+transactions = pd.read_csv('Portfolio/Capstone/data/transaction_data.csv')
+
+a = transactions.groupby('household_key')['DAY']
+a.max().nsmallest(15)
+
+causal_data = pd.read_csv('Portfolio/Capstone/data/causal_data.csv')
+
+a = list(causal_data['STORE_ID'].unique())
+
+len(a)
+
+Summary Introduction Script
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.rcParams['figure.figsize'] = (16,6)
+
+import datetime
+import glob
+
+
+data_files = glob.glob('Desktop/GitHub Repos/Capstone/data/*.csv')
+print(data_files)
+
+
+
+def print_histograms(data_files):
+    num_files = len(data_files)
+    output = pd.DataFrame()
+    
+
+    for idx, file in enumerate(data_files):
+        df = pd.read_csv(file)
+        name = file.split("\\")[-1][:-4]
+        shape = df.shape
+        nulls = df.isna().sum().sum()
+        columns = list(df.columns)
+        num_cols = len(df.columns)
+        # plotting
+        plt.subplots(1, num_cols)
+        plt.suptitle(f'Column distributions for {name}; {shape[0]} rows and {shape[1]} columns')
+        for idx, col in enumerate(df.columns):
+            plt.subplot(1, num_cols,  idx+1)
+            plt.title(f'Histogram of {col}')
+            plt.hist(df[col], bins=15)
+            plt.xticks(rotation='45')
+        plt.tight_layout()
+        plt.show()
+        
+print_histograms(data_files)
+
+def check_dfs(data_files):
+    num_files = len(data_files)
+    output = pd.DataFrame()
+    
+
+    for idx, file in enumerate(data_files):
+        df = pd.read_csv(file)
+        name = file.split("\\")[1][:-4]
+        shape = df.shape
+        nulls = df.isna().sum().sum()
+        columns = list(df.columns)
+        num_cols = len(df.columns)
+        
+        output = output.append(pd.Series([name, shape, nulls, num_cols, columns]), ignore_index=True)
+    output.columns =  ['name', 'shape', 'nulls', 'num_cols', 'columns']
+
+    return output
+check_dfs(data_files)
+
+def get_campaign_dates():
+    campaign_desc = pd.read_csv('data/campaign_desc.csv')
+    campaign_dates = dict()
+    for row in campaign_desc.index:
+        a, b, c = campaign_desc.loc[row, ['CAMPAIGN', 'START_DAY', 'END_DAY']].values
+        # print(a, b, c)
+        campaign_dates[a] = {'start' :b, 'end' :c}
+    return campaign_dates
+
+# get_campaign_dates()
+
+campaigns = get_campaign_dates()
+
+def get_product_list(campaign):
+    coupon = pd.read_csv('data/coupon.csv')
+    return list(coupon[coupon['CAMPAIGN']==campaign]['PRODUCT_ID'])
+
+for i in range(1,31):
+    campaigns[i]['products'] = get_product_list(i)
+
+def get_sales_data(i, campaign_dict):
+    transactions = pd.read_csv('data/transaction_data.csv')
+    # get the total for the campaign
+    ref = campaigns[i]
+    return transactions[(transactions['DAY'].isin(range(ref['start'], ref['end']+1)))]
+    #
+
+
+def get_daily_sales(i, campaign_dict):
+    ref = get_sales_data(i, campaign_dict)
+    ref = ref[ref['PRODUCT_ID'].isin(campaign_dict[i]['products'])]
+    return ref.groupby('DAY')['SALES_VALUE'].sum()
+
+for campaign in campaigns.keys():
+    campaigns[campaign]['camp_product_sos'] = get_daily_sales(campaign, campaigns)
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+for camp in campaigns.keys():
+    campaigns[camp]['campaign_sos'].plot()
+
+ref = transactions.groupby('DAY')['SALES_VALUE'].sum()
+plt.axhline(ref.mean())
+plt.xticks(range(0, 750, 50))
+plt.show()
+
+for camp in campaigns.keys():
+    campaigns[camp]['campaign_sos'].plot(alpha=1)
+
+ref = transactions.groupby('DAY')['SALES_VALUE'].sum()
+ref.plot(alpha=0.7, color='cyan')
+plt.axhline(ref.mean())
+plt.xticks(range(0, 750, 50))
+plt.show()
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+print(causal_data['WEEK_NO'].min(),
+causal_data['WEEK_NO'].max()
+)
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+We see a surprising amount of overlap between the 'coupon' table's list of products (for each campaign), and the actual sum of sales for that day. There is a stretch of sales data (days ~100 -> ~225) which has no campaign, but a somewhat regular amount of sales.
+
+causal_data doesn't have sales information prior to week 9 (day 63...).
+
+DATA ACQUISITION/PIPELINE:
+- We can see how difficult it is to have all cylinders running at once...
+    - acquiring customers for the study took time
+    - we have a superfluous amount of causal data --> by store!... create household labels...run recommender for cluster-labels from each store?
+    -  
+
+
+campaigns[1]['campaign_sos']
+
+campaign_desc --> start and end day of campaigns.
+campaign_table --> 7208 households targeted by 30? campaigns..
+
+coupon_redempt --> 2318 coupons redeemed, day of redemption/campaign
+
+
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+    
+    causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+transactions['STORE_ID'].nunique()
+
+transactions = pd.read_csv('Portfolio/Capstone/data/transaction_data.csv')
+
+a = transactions.groupby('household_key')['DAY']
+a.max().nsmallest(15)
+
+causal_data = pd.read_csv('Portfolio/Capstone/data/causal_data.csv')
+
+a = list(causal_data['STORE_ID'].unique())
+
+len(a)
+
+Summary Introduction Script
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.rcParams['figure.figsize'] = (16,6)
+
+import datetime
+import glob
+
+
+data_files = glob.glob('Desktop/GitHub Repos/Capstone/data/*.csv')
+print(data_files)
+
+
+
+def print_histograms(data_files):
+    num_files = len(data_files)
+    output = pd.DataFrame()
+    
+
+    for idx, file in enumerate(data_files):
+        df = pd.read_csv(file)
+        name = file.split("\\")[-1][:-4]
+        shape = df.shape
+        nulls = df.isna().sum().sum()
+        columns = list(df.columns)
+        num_cols = len(df.columns)
+        # plotting
+        plt.subplots(1, num_cols)
+        plt.suptitle(f'Column distributions for {name}; {shape[0]} rows and {shape[1]} columns')
+        for idx, col in enumerate(df.columns):
+            plt.subplot(1, num_cols,  idx+1)
+            plt.title(f'Histogram of {col}')
+            plt.hist(df[col], bins=15)
+            plt.xticks(rotation='45')
+        plt.tight_layout()
+        plt.show()
+        
+print_histograms(data_files)
+
+def check_dfs(data_files):
+    num_files = len(data_files)
+    output = pd.DataFrame()
+    
+
+    for idx, file in enumerate(data_files):
+        df = pd.read_csv(file)
+        name = file.split("\\")[1][:-4]
+        shape = df.shape
+        nulls = df.isna().sum().sum()
+        columns = list(df.columns)
+        num_cols = len(df.columns)
+        
+        output = output.append(pd.Series([name, shape, nulls, num_cols, columns]), ignore_index=True)
+    output.columns =  ['name', 'shape', 'nulls', 'num_cols', 'columns']
+
+    return output
+check_dfs(data_files)
+
+def get_campaign_dates():
+    campaign_desc = pd.read_csv('data/campaign_desc.csv')
+    campaign_dates = dict()
+    for row in campaign_desc.index:
+        a, b, c = campaign_desc.loc[row, ['CAMPAIGN', 'START_DAY', 'END_DAY']].values
+        # print(a, b, c)
+        campaign_dates[a] = {'start' :b, 'end' :c}
+    return campaign_dates
+
+# get_campaign_dates()
+
+campaigns = get_campaign_dates()
+
+def get_product_list(campaign):
+    coupon = pd.read_csv('data/coupon.csv')
+    return list(coupon[coupon['CAMPAIGN']==campaign]['PRODUCT_ID'])
+
+for i in range(1,31):
+    campaigns[i]['products'] = get_product_list(i)
+
+def get_sales_data(i, campaign_dict):
+    transactions = pd.read_csv('data/transaction_data.csv')
+    # get the total for the campaign
+    ref = campaigns[i]
+    return transactions[(transactions['DAY'].isin(range(ref['start'], ref['end']+1)))]
+    #
+
+
+def get_daily_sales(i, campaign_dict):
+    ref = get_sales_data(i, campaign_dict)
+    ref = ref[ref['PRODUCT_ID'].isin(campaign_dict[i]['products'])]
+    return ref.groupby('DAY')['SALES_VALUE'].sum()
+
+for campaign in campaigns.keys():
+    campaigns[campaign]['camp_product_sos'] = get_daily_sales(campaign, campaigns)
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+for camp in campaigns.keys():
+    campaigns[camp]['campaign_sos'].plot()
+
+ref = transactions.groupby('DAY')['SALES_VALUE'].sum()
+plt.axhline(ref.mean())
+plt.xticks(range(0, 750, 50))
+plt.show()
+
+for camp in campaigns.keys():
+    campaigns[camp]['campaign_sos'].plot(alpha=1)
+
+ref = transactions.groupby('DAY')['SALES_VALUE'].sum()
+ref.plot(alpha=0.7, color='cyan')
+plt.axhline(ref.mean())
+plt.xticks(range(0, 750, 50))
+plt.show()
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+print(causal_data['WEEK_NO'].min(),
+causal_data['WEEK_NO'].max()
+)
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+
+We see a surprising amount of overlap between the 'coupon' table's list of products (for each campaign), and the actual sum of sales for that day. There is a stretch of sales data (days ~100 -> ~225) which has no campaign, but a somewhat regular amount of sales.
+
+causal_data doesn't have sales information prior to week 9 (day 63...).
+
+DATA ACQUISITION/PIPELINE:
+- We can see how difficult it is to have all cylinders running at once...
+    - acquiring customers for the study took time
+    - we have a superfluous amount of causal data --> by store!... create household labels...run recommender for cluster-labels from each store?
+    -  
+
+
+campaigns[1]['campaign_sos']
+
+campaign_desc --> start and end day of campaigns.
+campaign_table --> 7208 households targeted by 30? campaigns..
+
+coupon_redempt --> 2318 coupons redeemed, day of redemption/campaign
+
+
+
+# TODO:
+# - sales forecasting
+# - Time series analysis
+ 
+# find the most sold-product DISPLAY, BY STORE, BY WEEK
+
+# for all weeks
+
+# for a specific store
+
+    # what section of display products did the best?
+
+
+transactions = pd.read_csv('data/transaction_data.csv')
+
+causal_data = pd.read_csv('data/causal_data.csv')
+
+transactions.head()
+
+best_section(364)
+
+
+a
+
+can we speak broadly about the sections, across stores? probably not. let's try for fun.
+
+causal_data['WEEK_NO'].nunique()
+
+93 * len(['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+weeks = list(causal_data['WEEK_NO'].unique())
+
+container = dict()
+def best_section():
+    for week in weeks:
+        container[week] = dict()
+        
+        for display in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+            display_products = list(causal_data[(causal_data['WEEK_NO'] == week) & (causal_data['display']==display)]['PRODUCT_ID'])
+            container[week][display] = transactions[(transactions['PRODUCT_ID'].isin(display_products) & transactions['WEEK_NO'] == week)]
+            
+    return container
+
+all_displays = best_section()
+
+pd.DataFrame(all_displays)
+
+def best_section(store):
+    
+        df = pd.DataFrame()
+        # take all promotions for store_id from causal_data
+                                                            # pull the display location, product_id, and week
+        store_promos = causal_data[causal_data['STORE_ID'] == store][['display', 'PRODUCT_ID', 'WEEK_NO']]
+        
+        section_sales_by_week = dict()
+        # have a key for each weeek.
+            # inside, have a key for each display section
+                # inside, have the sum of sales in that section
+        
+        
+        # ITERATE THROUGH WEEKS FOR STORE
+        for week in store_promos['WEEK_NO'].unique():
+            # FIND PRODUCTS, DISPLAY LOCATIONS
+            # create a weekly dictionary
+            section_sales_by_week[week] = dict() 
+            
+            weekly_promos = store_promos[store_promos['WEEK_NO'] == week]
+            
+            for section in weekly_promos['display'].unique():
+                section_products = list(weekly_promos[weekly_promos['display'] == section]['PRODUCT_ID'])
+                section_sales = transactions[(transactions['WEEK_NO'] == week) & transactions['PRODUCT_ID'].isin(section_products)]['SALES_VALUE'].sum()
+                section_sales_by_week[week][section] = section_sales
+                   
+#             weekly_sales = sales[sales['PRODUCT_ID'].isin(products)]['SALES_VALUE'].sum()
+#                 section_sales_by_week[week][section] = weekly_section_sales
+                
+#         return sections, weeks, products
+        return section_sales_by_week
+a = best_section(364)
+
+a.keys()
+
+pd.DataFrame(a).T.plot(kind='barh')
+
+# 10 sections in each store;
+# create an array of sales totals by week for each section
+df = pd.DataFrame(columns=['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3'])
+
+for week, displays in a.items():
+    for key in ['0', '9', '5', '7', '1', '6', 'A', '2', '4', '3']:
+        
+        
