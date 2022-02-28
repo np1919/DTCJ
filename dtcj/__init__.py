@@ -19,6 +19,7 @@ from .load_demo import load_demo
 from .demo_map_categorical import demo_map_categorical
 
 # create merged
+from .add_section_sales import add_section_sales
 from .load_merged import load_merged
 from .load_hh_agg import load_hh_agg
 
